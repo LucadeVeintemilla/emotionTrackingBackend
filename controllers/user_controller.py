@@ -88,8 +88,8 @@ def create_user_blueprint(db, config):
                     else:
                         break
                     
-                if len(files) < 3:
-                    return jsonify({"error": "Students must upload at least 3 images."}), 400
+                if len(files) != 3:
+                    return jsonify({"error": "Students must upload 3 images exactly."}), 400
                 user_data = {
                     "name": name,
                     "last_name": last_name,

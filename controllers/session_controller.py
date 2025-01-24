@@ -11,10 +11,21 @@ def create_session_blueprint(db, config):
     @token_required(db, SECRET_KEY)
     @is_professor
     def create_session(current_user):
-        session_data = request.json
-        session_data['professor_id'] = current_user['_id']
-        result = sessions_collection.insert_one(session_data)
-        return jsonify({"message": "Session created successfully!", "session_id": str(result.inserted_id)}), 201
+        # sesion has a profesor_id, a name, and id of the classroom
+        data = request.get_json()
+        if not data or 'name' not in data or 'classroom_id' not in data:
+            return jsonify({"error": "Session must have a name and a classroom_id"}), 400
+        
+        session = {
+            "professor_id": current_user['_id'],
+            "name": data['name'],
+            "classroom_id": ObjectId(data['classroom_id'])
+        }
+        
+        result = sessions_collection.insert_one(session)
+        session['_id'] = str(result.inserted_id)
+        
+        return jsonify({"message": "Session created successfully"}), 201
 
     @session_blueprint.route('/get_sessions', methods=['GET'])
     @token_required(db, SECRET_KEY)
