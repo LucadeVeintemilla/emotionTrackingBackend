@@ -60,3 +60,6 @@ venv.bak/
 
 # Backup files
 app_back.zip
+
+# images and sub folders
+user_images/
