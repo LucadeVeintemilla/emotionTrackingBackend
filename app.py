@@ -1,7 +1,7 @@
 from flask import Flask
 from controllers.emotion_controller import create_emotion_blueprint
 from controllers.user_controller import create_user_blueprint
-from controllers.class_controller import create_class_blueprint
+from controllers.classroom_controller import create_classroom_blueprint
 from controllers.session_controller import create_session_blueprint
 from dotenv import load_dotenv
 import os
@@ -27,7 +27,7 @@ db = client[app.config['MONGO_DB_NAME']]
 # Register blueprints
 app.register_blueprint(create_emotion_blueprint(db, app.config), url_prefix='/emotion')
 app.register_blueprint(create_user_blueprint(db, app.config), url_prefix='/user')
-app.register_blueprint(create_class_blueprint(db, app.config), url_prefix='/class')
+app.register_blueprint(create_classroom_blueprint(db, app.config), url_prefix='/classroom')
 app.register_blueprint(create_session_blueprint(db, app.config), url_prefix='/session')
 
 if __name__ == '__main__':

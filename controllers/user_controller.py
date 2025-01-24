@@ -46,9 +46,83 @@ def create_user_blueprint(db, config):
     @user_blueprint.route('/register', methods=['POST'])
     def register_user_route():
         try:
-            # Check if images and user data are included in the request
-            if 'images' not in request.files or 'name' not in request.form or 'last_name' not in request.form or 'age' not in request.form or 'gender' not in request.form or 'email' not in request.form or 'role' not in request.form:
-                return jsonify({"error": "Missing images or user data in request"}), 400
+            # Check if user data are included in the request
+            if 'name' not in request.form or 'last_name' not in request.form or 'age' not in request.form or 'gender' not in request.form or 'email' not in request.form or 'role' not in request.form:
+                return jsonify({"error": "Missing user data in request"}), 400
+
+            # Get user data from the request
+            name = request.form.get('name')
+            last_name = request.form.get('last_name')
+            age = request.form.get('age')
+            gender = request.form.get('gender')
+            email = request.form.get('email')
+            role = request.form.get('role')
+
+            files = []
+            if role == 'professor':
+                file = request.files.get('image')
+                if not file:
+                    return jsonify({"error": "Professors must upload exactly one image."}), 400
+                files.append(file)
+                password = request.form.get('password')
+                if not password:
+                    return jsonify({"error": "Professors must provide a password."}), 400
+                
+                hashed_password = generate_password_hash(password)
+                user_data = {
+                    "name": name,
+                    "last_name": last_name,
+                    "age": age,
+                    "gender": gender,
+                    "email": email,
+                    "role": role,
+                    "password": hashed_password
+                }
+            elif role == 'student':
+                index = 0
+                while True:
+                    file = request.files.get(f'image_{index}')
+                    if file:
+                        files.append(file)
+                        index += 1
+                    else:
+                        break
+                    
+                if len(files) < 3:
+                    return jsonify({"error": "Students must upload at least 3 images."}), 400
+                user_data = {
+                    "name": name,
+                    "last_name": last_name,
+                    "age": age,
+                    "gender": gender,
+                    "email": email,
+                    "role": role
+                }
+            else:
+                return jsonify({"error": "Invalid role specified."}), 400
+
+            # Check if the user already exists
+            existing_user = users_collection.find_one({"email": email})
+            if existing_user:
+                return jsonify({"error": "User already exists"}), 400
+
+            # Convert files to PIL images
+            images = [Image.open(file) for file in files]
+
+            # Register the user
+            user_id = register_user(images, user_data)
+            token = jwt.encode({
+                    'user_id': str(user_id),
+                    'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+                }, SECRET_KEY, algorithm='HS256')
+                
+            return jsonify({"token": token}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        try:
+            # Check if user data are included in the request
+            if 'name' not in request.form or 'last_name' not in request.form or 'age' not in request.form or 'gender' not in request.form or 'email' not in request.form or 'role' not in request.form:
+                return jsonify({"error": "Missing user data in request"}), 400
 
             # Get user data from the request
             name = request.form.get('name')
@@ -59,14 +133,19 @@ def create_user_blueprint(db, config):
             role = request.form.get('role')
 
             # Get the list of image files from the request
-            files = request.files.getlist('images')
+            # files = request.files.getlist('images')
 
+            files = []
             if role == 'professor':
                 if len(files) != 1:
                     return jsonify({"error": "Professors must upload exactly one image."}), 400
                 password = request.form.get('password')
                 if not password:
                     return jsonify({"error": "Professors must provide a password."}), 400
+                
+                file = request.files.get('image')
+                if file:
+                    files.append(file)
                 hashed_password = generate_password_hash(password)
                 user_data = {
                     "name": name,
@@ -200,5 +279,13 @@ def create_user_blueprint(db, config):
         
         users_collection.update_one({"_id": ObjectId(current_user['_id'])}, {"$set": update_data})
         return jsonify({"message": "Profile updated successfully!"}), 200
+    
+    @user_blueprint.route('/students', methods=['GET'])
+    @token_required(db, SECRET_KEY)
+    def get_students(current_user):
+        students = list(users_collection.find({"role": "student"}))
+        for student in students:
+            student['_id'] = str(student['_id'])
+        return jsonify(students), 200
     
     return user_blueprint
