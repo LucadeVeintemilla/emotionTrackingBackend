@@ -29,10 +29,15 @@ def create_session_blueprint(db, config):
 
     @session_blueprint.route('/get_sessions', methods=['GET'])
     @token_required(db, SECRET_KEY)
+    @is_professor
     def get_sessions(current_user):
         sessions = list(sessions_collection.find({"professor_id": current_user['_id']}))
+        
+        # Convert ObjectId to string
         for session in sessions:
             session['_id'] = str(session['_id'])
+            session['professor_id'] = str(session['professor_id'])
+            session['classroom_id'] = str(session['classroom_id'])
         return jsonify(sessions), 200
 
     return session_blueprint
