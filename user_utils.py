@@ -70,6 +70,7 @@ def identify_user(image_path, users_collection, gender, role):
         
         results = DeepFace.find(img_path=image_path, db_path=db_path, enforce_detection=False)
         identified_user = None
+
         
         if results:
             user_image_path = results[0]['identity'][0]

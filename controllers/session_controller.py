@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from bson.objectid import ObjectId
 from user_utils import token_required, is_professor
+from datetime import datetime
 
 def create_session_blueprint(db, config):
     sessions_collection = db['sessions']
@@ -17,6 +18,9 @@ def create_session_blueprint(db, config):
             return jsonify({"error": "Session must have a name and a classroom_id"}), 400
         
         session = {
+            'created_at': datetime.utcnow(),
+            'student_scores': [],
+            'student_emotions': [],
             "professor_id": current_user['_id'],
             "name": data['name'],
             "classroom_id": ObjectId(data['classroom_id'])
