@@ -9,6 +9,7 @@ from deepface import DeepFace
 import io
 from user_utils import identify_user, save_emotions_to_user, token_required, is_professor
 from bson.objectid import ObjectId
+import datetime
 
 def create_emotion_blueprint(db, config):
     SECRET_KEY = config['SECRET_KEY']
@@ -57,6 +58,7 @@ def create_emotion_blueprint(db, config):
     
     def analyze_emotion(img_array, detector_backend='mtcnn'):
         # Analyze the image to detect emotions using DeepFace
+        # results = DeepFace.analyze(img_array, actions=['emotion', 'gender'], detector_backend=detector_backend, enforce_detection=False)
         results = DeepFace.analyze(img_array, actions=['emotion', 'gender'], detector_backend=detector_backend, enforce_detection=False)
         emotions = []
         
@@ -181,6 +183,24 @@ def create_emotion_blueprint(db, config):
                 identified_user = identify_user(face_img_array, users_collection, gender, 'student')
                 
                 emotion['identified_user'] = identified_user
+                
+                if identified_user:
+                    student_id = str(identified_user['_id'])
+                    emotion_data = {
+                        'emotion': emotion['dominant_emotion'],
+                        'timestamp': datetime.datetime.utcnow()
+                    }
+                    
+                    if student_id in session['student_emotions']:
+                        session['student_emotions'][student_id].append(emotion_data)
+                    else:
+                        session['student_emotions'][student_id] = [emotion_data]
+            
+            
+            sessions_collection.update_one(
+                {'_id': ObjectId(session_id)},
+                {'$set': {'student_emotions': session['student_emotions']}}
+            )
 
             # Draw boxes and emotions on the image
             draw_boxes(img_array, emotions, scale_x, scale_y)

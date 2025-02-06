@@ -19,8 +19,8 @@ def create_session_blueprint(db, config):
         
         session = {
             'created_at': datetime.utcnow(),
-            'student_scores': [],
-            'student_emotions': [],
+            'student_scores': {},
+            'student_emotions': {},
             "professor_id": current_user['_id'],
             "name": data['name'],
             "classroom_id": ObjectId(data['classroom_id'])
