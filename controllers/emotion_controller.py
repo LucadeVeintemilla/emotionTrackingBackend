@@ -130,20 +130,32 @@ def create_emotion_blueprint(db, config):
             if identified_user:
                 emotion_text = f"{emotion_text} - {identified_user['name']}"
                 
-            font_scale = 4.0  # Increase this value to make the text larger
-            thickness = 2   
+            # Reducir el tamaño de la fuente y el grosor
+            font_scale = 0.8  # Reducido de 4.0 a 0.8
+            thickness = 1     # Reducido de 2 a 1
             
-            # Calculate the position for the text
+            # Calcular la posición para el texto
             text_size, _ = cv2.getTextSize(emotion_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
             text_w, text_h = text_size
+            
+            # Ajustar la posición del texto
             text_x = x
-            text_y = y - 10 if y - 10 > 10 else y + 10
-                
-            # Draw rectangle behind the text
-            cv2.rectangle(img_array, (text_x, text_y - text_h - 5), (text_x + text_w, text_y + 40), (255, 0, 0), -1)
+            text_y = y - 5  # Reducido el espacio sobre el cuadro
 
-            # Put the emotion text on the image
-            cv2.putText(img_array, emotion_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness)
+            # Hacer el rectángulo de fondo más pequeño
+            cv2.rectangle(img_array, 
+                        (text_x, text_y - text_h - 2), 
+                        (text_x + text_w, text_y + 2), 
+                        (255, 0, 0), 
+                        -1)
+
+            cv2.putText(img_array, 
+                       emotion_text, 
+                       (text_x, text_y), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 
+                       font_scale, 
+                       (255, 255, 255), 
+                       thickness)
 
     @emotion_blueprint.route('/process_frame', methods=['POST'])
     @token_required(db, SECRET_KEY)

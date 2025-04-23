@@ -27,6 +27,29 @@ def create_user_blueprint(db, config):
     def allowed_file(filename):
         return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
 
+    def validate_image(image_file):
+        try:
+            # Check if the file exists and has valid extension
+            if not image_file or not allowed_file(image_file.filename):
+                return False, "Invalid image file or extension"
+            
+            # Try to open and verify the image
+            img = Image.open(image_file)
+            img.verify()
+            
+            # Reset file pointer after verify
+            image_file.seek(0)
+            
+            # Try to actually load the image
+            img = Image.open(image_file)
+            img.load()
+            
+            # Reset file pointer again
+            image_file.seek(0)
+            return True, img
+        except Exception as e:
+            return False, str(e)
+
     def register_user(images, user_data):
         user_images = []
         base_folder = 'user_images'
@@ -38,13 +61,24 @@ def create_user_blueprint(db, config):
             os.makedirs(gender_folder)
 
         for image in images:
-            # Generate a unique filename
-            filename = f"{uuid.uuid4().hex}.jpg"
-            image_path = os.path.join(gender_folder, filename)
-            
-            # Save image to file system
-            image.save(image_path)
-            user_images.append(image_path)
+            try:
+                # Generate a unique filename
+                filename = f"{uuid.uuid4().hex}.jpg"
+                image_path = os.path.join(gender_folder, filename)
+                
+                # Convert image to RGB if necessary
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
+                # Save image to file system
+                image.save(image_path, format='JPEG', quality=95)
+                user_images.append(image_path)
+            except Exception as e:
+                # Clean up any saved images if there's an error
+                for saved_image in user_images:
+                    if os.path.exists(saved_image):
+                        os.remove(saved_image)
+                raise Exception(f"Error saving image: {str(e)}")
 
         user_data['images'] = user_images
         result = users_collection.insert_one(user_data)
@@ -114,11 +148,16 @@ def create_user_blueprint(db, config):
             if existing_user:
                 return jsonify({"error": "User already exists"}), 400
 
-            # Convert files to PIL images
-            images = [Image.open(file) for file in files]
+            # Validate each image before processing
+            validated_images = []
+            for file in files:
+                is_valid, result = validate_image(file)
+                if not is_valid:
+                    return jsonify({"error": f"Invalid image: {result}"}), 400
+                validated_images.append(result)
 
-            # Register the user
-            user_id = register_user(images, user_data)
+            # Register the user with validated images
+            user_id = register_user(validated_images, user_data)
             token = jwt.encode({
                     'user_id': str(user_id),
                     'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
