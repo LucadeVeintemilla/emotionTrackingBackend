@@ -5,6 +5,8 @@ from bson.objectid import ObjectId
 import jwt
 from functools import wraps
 from flask import request, jsonify
+import numpy as np
+import time
 
 def token_required(db, secret_key):
     def decorator(f):
@@ -71,7 +73,6 @@ def identify_user(image_path, users_collection, gender, role):
         results = DeepFace.find(img_path=image_path, db_path=db_path, enforce_detection=False)
         identified_user = None
 
-        
         if results:
             user_image_path = results[0]['identity'][0]
             user = users_collection.find_one({"images": user_image_path})

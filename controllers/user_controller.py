@@ -8,17 +8,25 @@ from functools import wraps
 from bson.objectid import ObjectId
 import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from user_utils import identify_users, identify_user, save_emotions_to_user, token_required, is_self, is_professor
 
 def create_user_blueprint(db, config):
     users_collection = db['users']
+    students_collection = db['students']  # Nueva colección para estudiantes
     user_blueprint = Blueprint('user', __name__)
     SECRET_KEY = config['SECRET_KEY']
-    
+    UPLOAD_FOLDER = 'user_images'
+
     @user_blueprint.route('/user_images/<path:filename>')
     def user_images(filename):
-        return send_from_directory('user_images', filename)
-    
+        # Convert backslashes to forward slashes
+        filename = filename.replace('\\', '/')
+        return send_from_directory(UPLOAD_FOLDER, filename)
+
+    def allowed_file(filename):
+        return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
+
     def register_user(images, user_data):
         user_images = []
         base_folder = 'user_images'
@@ -57,17 +65,17 @@ def create_user_blueprint(db, config):
             gender = request.form.get('gender')
             email = request.form.get('email')
             role = request.form.get('role')
-
             files = []
+
             if role == 'professor':
-                file = request.files.get('image')
-                if not file:
-                    return jsonify({"error": "Professors must upload exactly one image."}), 400
-                files.append(file)
                 password = request.form.get('password')
                 if not password:
                     return jsonify({"error": "Professors must provide a password."}), 400
                 
+                file = request.files.get('image')
+                if not file:
+                    return jsonify({"error": "Professors must upload exactly one image."}), 400
+                files.append(file)
                 hashed_password = generate_password_hash(password)
                 user_data = {
                     "name": name,
@@ -87,78 +95,9 @@ def create_user_blueprint(db, config):
                         index += 1
                     else:
                         break
-                    
+                
                 if len(files) != 3:
-                    return jsonify({"error": "Students must upload 3 images exactly."}), 400
-                user_data = {
-                    "name": name,
-                    "last_name": last_name,
-                    "age": age,
-                    "gender": gender,
-                    "email": email,
-                    "role": role
-                }
-            else:
-                return jsonify({"error": "Invalid role specified."}), 400
-
-            # Check if the user already exists
-            existing_user = users_collection.find_one({"email": email})
-            if existing_user:
-                return jsonify({"error": "User already exists"}), 400
-
-            # Convert files to PIL images
-            images = [Image.open(file) for file in files]
-
-            # Register the user
-            user_id = register_user(images, user_data)
-            token = jwt.encode({
-                    'user_id': str(user_id),
-                    'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-                }, SECRET_KEY, algorithm='HS256')
-                
-            return jsonify({"token": token}), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-        try:
-            # Check if user data are included in the request
-            if 'name' not in request.form or 'last_name' not in request.form or 'age' not in request.form or 'gender' not in request.form or 'email' not in request.form or 'role' not in request.form:
-                return jsonify({"error": "Missing user data in request"}), 400
-
-            # Get user data from the request
-            name = request.form.get('name')
-            last_name = request.form.get('last_name')
-            age = request.form.get('age')
-            gender = request.form.get('gender')
-            email = request.form.get('email')
-            role = request.form.get('role')
-
-            # Get the list of image files from the request
-            # files = request.files.getlist('images')
-
-            files = []
-            if role == 'professor':
-                if len(files) != 1:
-                    return jsonify({"error": "Professors must upload exactly one image."}), 400
-                password = request.form.get('password')
-                if not password:
-                    return jsonify({"error": "Professors must provide a password."}), 400
-                
-                file = request.files.get('image')
-                if file:
-                    files.append(file)
-                hashed_password = generate_password_hash(password)
-                user_data = {
-                    "name": name,
-                    "last_name": last_name,
-                    "age": age,
-                    "gender": gender,
-                    "email": email,
-                    "role": role,
-                    "password": hashed_password
-                }
-            elif role == 'student':
-                if len(files) < 3:
-                    return jsonify({"error": "Students must upload at least 3 images."}), 400
+                    return jsonify({"error": "Students must upload exactly 3 images."}), 400
                 user_data = {
                     "name": name,
                     "last_name": last_name,

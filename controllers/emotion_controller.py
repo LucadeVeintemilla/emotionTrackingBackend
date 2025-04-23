@@ -38,6 +38,20 @@ def create_emotion_blueprint(db, config):
         # Return the resized image and its original dimensions
         return resized_img, img_array.shape[1], img_array.shape[0]
 
+    def preprocess_image(img_array):
+        # Convert the image to grayscale
+        gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+        # Apply Gaussian blur to the grayscale image
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        # Equalize the histogram of the blurred image
+        equalized = cv2.equalizeHist(blurred)
+        # Convert the equalized image back to BGR color space
+        preprocessed_img = cv2.cvtColor(equalized, cv2.COLOR_GRAY2BGR)
+        # Resize the preprocessed image to half its original size
+        resized_img = cv2.resize(preprocessed_img, (0, 0), fx=0.5, fy=0.5)
+        # Return the resized image and its original dimensions
+        return resized_img, img_array.shape[1], img_array.shape[0]
+
     def convert_region_to_box(region):
         box = {
             'x': int(region['x']),
@@ -55,10 +69,9 @@ def create_emotion_blueprint(db, config):
         }
         
         return box
-    
+
     def analyze_emotion(img_array, detector_backend='mtcnn'):
         # Analyze the image to detect emotions using DeepFace
-        # results = DeepFace.analyze(img_array, actions=['emotion', 'gender'], detector_backend=detector_backend, enforce_detection=False)
         results = DeepFace.analyze(img_array, actions=['emotion', 'gender'], detector_backend=detector_backend, enforce_detection=False)
         emotions = []
         
@@ -74,9 +87,6 @@ def create_emotion_blueprint(db, config):
             # Extract the face region from the image
             _face_region = img_array[box['y']:box['y'] + box['h'], box['x']:box['x'] + box['w']]
             face_region = base64.b64encode(cv2.imencode('.jpg', _face_region)[1]).decode('utf-8')
-            
-            # Save face in new imgage
-            # cv2.imwrite(f"face_{uuid.uuid4()}.jpg", _face_region)
             
             emotion = {
                 'dominant_emotion': dominant_emotion,
@@ -144,19 +154,21 @@ def create_emotion_blueprint(db, config):
             if 'image' not in request.files:
                 return jsonify({"error": "No image found in request"}), 400
             
-            if 'session_id' not in request.form:
-                return jsonify({"error": "No session_id found in request"}), 400
+            if 'session_id' not in request.form or 'student_id' not in request.form:
+                return jsonify({"error": "Missing session_id or student_id"}), 400
             
             session_id = request.form.get('session_id')
+            student_id = request.form.get('student_id')
             
             file = request.files['image']
             image = Image.open(file)
             img_array = np.array(image)
+            
+            if img_array is None or img_array.size == 0:
+                return jsonify({"error": "Invalid image data"}), 400
+                
             preprocessed_img, original_width, original_height = preprocess_image(img_array)
             detector_backend = request.form.get('detector_backend', 'mtcnn')
-            
-            # write image
-            # cv2.imwrite(f"image_{uuid.uuid4()}.jpg", img_array)
             
             session = sessions_collection.find_one({'_id': ObjectId(session_id)})
             
@@ -167,55 +179,89 @@ def create_emotion_blueprint(db, config):
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(analyze_emotion, preprocessed_img, detector_backend)
                 emotions = future.result()
+            
+            if not emotions:
+                return jsonify({"error": "No emotions detected"}), 404
 
             scale_x = original_width / preprocessed_img.shape[1]
             scale_y = original_height / preprocessed_img.shape[0]
             
             # Process each detected face to identify the user
             for emotion in emotions:
-                face_region = emotion['face_region']
-                # convert face_region to image
-                face_image = Image.open(io.BytesIO(base64.b64decode(face_region)))
-                face_img_array = np.array(face_image)
-                
-                gender = "female" if emotion['dominant_gender'] == "Woman" else "male"
-                
-                identified_user = identify_user(face_img_array, users_collection, gender, 'student')
-                
-                emotion['identified_user'] = identified_user
-                
-                if identified_user:
-                    student_id = str(identified_user['_id'])
-                    emotion_data = {
-                        'emotion': emotion['dominant_emotion'],
-                        'timestamp': datetime.datetime.utcnow()
-                    }
+                try:
+                    face_region = emotion.get('face_region')
+                    if not face_region:
+                        continue
+                        
+                    face_image = Image.open(io.BytesIO(base64.b64decode(face_region)))
+                    face_img_array = np.array(face_image)
                     
-                    if student_id in session['student_emotions']:
-                        session['student_emotions'][student_id].append(emotion_data)
-                    else:
-                        session['student_emotions'][student_id] = [emotion_data]
+                    gender = "female" if emotion.get('dominant_gender') == "Woman" else "male"
+                    identified_user = identify_user(face_img_array, users_collection, gender, 'student')
+                    emotion['identified_user'] = identified_user
+                    
+                    if identified_user:
+                        emotion_data = {
+                            'emotion': emotion['dominant_emotion'],
+                            'timestamp': datetime.datetime.utcnow()
+                        }
+                        
+                        if 'student_emotions' not in session:
+                            session['student_emotions'] = {}
+                            
+                        if student_id in session['student_emotions']:
+                            session['student_emotions'][student_id].append(emotion_data)
+                        else:
+                            session['student_emotions'][student_id] = [emotion_data]
+                except Exception as e:
+                    print(f"Error processing face: {str(e)}")
+                    continue
             
+            # Update session
+            try:
+                sessions_collection.update_one(
+                    {'_id': ObjectId(session_id)},
+                    {'$set': {'student_emotions': session.get('student_emotions', {})}}
+                )
+            except Exception as e:
+                print(f"Error updating session: {str(e)}")
             
-            sessions_collection.update_one(
-                {'_id': ObjectId(session_id)},
-                {'$set': {'student_emotions': session['student_emotions']}}
-            )
-
+            # Store detected emotions
+            session = sessions_collection.find_one({'_id': ObjectId(session_id)})
+            
+            for emotion in emotions:
+                emotion_record = {
+                    'timestamp': datetime.datetime.utcnow(),
+                    'emotion': emotion['dominant_emotion'],
+                    'confidence': emotion['emotion_confidence'],
+                    'student_id': student_id
+                }
+                
+                sessions_collection.update_one(
+                    {'_id': ObjectId(session_id)},
+                    {'$push': {'emotions_data': emotion_record}}
+                )
+            
             # Draw boxes and emotions on the image
             draw_boxes(img_array, emotions, scale_x, scale_y)
             
-            # Save the image with detected faces and emotions
-            # output_path = 'detected_faces.jpg'
-            # cv2.imwrite(output_path, img_array)
-            
+            # Ensure we can encode the image
+            try:
+                processed_image = base64.b64encode(cv2.imencode('.jpg', img_array)[1]).decode('utf-8')
+            except Exception as e:
+                print(f"Error encoding processed image: {str(e)}")
+                return jsonify({"error": "Error encoding processed image"}), 500
+                
             return jsonify({
                 'emotions': emotions,
                 'detector_backend': detector_backend,
-                'processed_image': base64.b64encode(cv2.imencode('.jpg', img_array)[1]).decode('utf-8')
+                'processed_image': processed_image
             }), 200
 
         except Exception as e:
+            print(f"Error in process_frame: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
             return jsonify({"error": "Error analyzing emotion", "message": str(e)}), 500
 
     @emotion_blueprint.route('/status', methods=['GET'])
@@ -252,5 +298,80 @@ def create_emotion_blueprint(db, config):
             }
         }
         return jsonify({'detectors': detectors}), 200
-    
+
+    @emotion_blueprint.route('/session/<session_id>/stats', methods=['GET'])
+    @token_required(db, SECRET_KEY)
+    @is_professor
+    def get_session_stats(current_user, session_id):
+        try:
+            session = sessions_collection.find_one({'_id': ObjectId(session_id)})
+            if not session:
+                return jsonify({"error": "Session not found"}), 404
+
+            emotions_data = session.get('emotions_data', [])
+            print("DEBUG: emotions_data count:", len(emotions_data))
+            print("DEBUG: emotions_data sample:", emotions_data[:2])
+
+            # Agrupar emociones por estudiante y ordenar por timestamp
+            stats_by_student = {}
+            for emotion in emotions_data:
+                student_id = emotion.get('student_id')
+                if not student_id or 'emotion' not in emotion or 'timestamp' not in emotion:
+                    continue
+                if student_id not in stats_by_student:
+                    stats_by_student[student_id] = []
+                stats_by_student[student_id].append(emotion)
+
+            # Ordenar emociones por timestamp para cada estudiante
+            for student_id in stats_by_student:
+                stats_by_student[student_id].sort(
+                    key=lambda x: x.get('timestamp')
+                )
+
+            final_stats = []
+            emotion_types = ['angry', 'disgust', 'fear', 'happy', 'sad', 'surprise', 'neutral']
+
+            for student_id, emotions in stats_by_student.items():
+                if not emotions:
+                    continue
+                mid_point = len(emotions) // 2
+                before_emotions = emotions[:mid_point]
+                after_emotions = emotions[mid_point:]
+
+                before_counts = {emotion: 0 for emotion in emotion_types}
+                after_counts = {emotion: 0 for emotion in emotion_types}
+
+                for e in before_emotions:
+                    emotion = e['emotion'].lower()
+                    if emotion in emotion_types:
+                        before_counts[emotion] += 1
+
+                for e in after_emotions:
+                    emotion = e['emotion'].lower()
+                    if emotion in emotion_types:
+                        after_counts[emotion] += 1
+
+                print(f"DEBUG: student_id={student_id} before={before_counts} after={after_counts}")
+
+                final_stats.append({
+                    'student_id': student_id,
+                    'before': before_counts,
+                    'after': after_counts,
+                    'total_frames': len(emotions)
+                })
+
+            print("DEBUG: final_stats:", final_stats)
+
+            return jsonify({
+                'stats': final_stats,
+                'session_id': session_id,
+                'emotion_types': emotion_types
+            }), 200
+
+        except Exception as e:
+            print(f"Error in get_session_stats: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return jsonify({"error": str(e)}), 500
+
     return emotion_blueprint
