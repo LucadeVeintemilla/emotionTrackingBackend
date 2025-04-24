@@ -121,17 +121,10 @@ def create_user_blueprint(db, config):
                     "password": hashed_password
                 }
             elif role == 'student':
-                index = 0
-                while True:
-                    file = request.files.get(f'image_{index}')
-                    if file:
-                        files.append(file)
-                        index += 1
-                    else:
-                        break
-                
-                if len(files) != 3:
-                    return jsonify({"error": "Students must upload exactly 3 images."}), 400
+                file = request.files.get('image_0')
+                if not file:
+                    return jsonify({"error": "Students must upload one image."}), 400
+                files.append(file)
                 user_data = {
                     "name": name,
                     "last_name": last_name,
