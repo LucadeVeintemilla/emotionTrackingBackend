@@ -1,27 +1,38 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from bson import ObjectId
+from user_utils import token_required, is_professor
 
-def create_semester_blueprint(db):
+def create_semester_blueprint(db, config):
     semester_blueprint = Blueprint('semester', __name__)
     semesters_collection = db.semesters
     users_collection = db.users
+    SECRET_KEY = config['SECRET_KEY']
 
     @semester_blueprint.route('/all', methods=['GET'])
-    def get_all_semesters():
+    @token_required(db, SECRET_KEY)
+    def get_all_semesters(current_user):
         try:
-            semesters = list(semesters_collection.find())
+            if current_user['role'] == 'professor':
+                semesters = list(semesters_collection.find({"professor_id": current_user['_id']}))
+            else:
+                semesters = list(semesters_collection.find())
+                
             for semester in semesters:
                 semester['_id'] = str(semester['_id'])
                 if 'students' in semester and semester['students']:
                     semester['students'] = [str(student_id) for student_id in semester['students']]
+                if 'professor_id' in semester:
+                    semester['professor_id'] = str(semester['professor_id'])
             
             return jsonify(semesters), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
     @semester_blueprint.route('/create', methods=['POST'])
-    def create_semester():
+    @token_required(db, SECRET_KEY)
+    @is_professor
+    def create_semester(current_user):
         data = request.get_json()
         
         if not data or 'name' not in data:
@@ -32,11 +43,13 @@ def create_semester_blueprint(db):
             'description': data.get('description', ''),
             'created_at': datetime.utcnow(),
             'is_active': True,
-            'students': data.get('students', [])
+            'students': data.get('students', []),
+            'professor_id': current_user['_id']
         }
         
         result = semesters_collection.insert_one(semester)
         semester['_id'] = str(result.inserted_id)
+        semester['professor_id'] = str(semester['professor_id'])
         
         students = data.get('students', [])
         if students:
@@ -77,6 +90,9 @@ def create_semester_blueprint(db):
                 
                 if 'students' in updated_semester and updated_semester['students']:
                     updated_semester['students'] = [str(student_id) for student_id in updated_semester['students']]
+                
+                if 'professor_id' in updated_semester:
+                    updated_semester['professor_id'] = str(updated_semester['professor_id'])
                 
                 return jsonify(updated_semester), 200
             else:

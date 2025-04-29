@@ -32,7 +32,7 @@ def create_app(config):
     app.register_blueprint(create_user_blueprint(db, app.config), url_prefix='/user')
     app.register_blueprint(create_classroom_blueprint(db, app.config), url_prefix='/classroom')
     app.register_blueprint(create_session_blueprint(db, app.config), url_prefix='/session')
-    app.register_blueprint(create_semester_blueprint(db), url_prefix='/semester')
+    app.register_blueprint(create_semester_blueprint(db, app.config), url_prefix='/semester')
     app.register_blueprint(create_student_blueprint(db, app.config), url_prefix='/student')
 
     return app
