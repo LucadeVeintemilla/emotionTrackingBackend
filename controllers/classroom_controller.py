@@ -12,10 +12,8 @@ def create_classroom_blueprint(db, config):
     @token_required(db, SECRET_KEY)
     @is_professor
     def create_classroom(current_user):
-        # Parse JSON data from request body
         data = request.get_json()
         
-        # Validate JSON data
         if not data or 'name' not in data or 'students' not in data:
             return jsonify({"error": "Classroom must have a name and a list of students"}), 400
 
@@ -43,12 +41,89 @@ def create_classroom_blueprint(db, config):
     def get_classrooms(current_user):
         classrooms = list(classrooms_collection.find({"professor_id": current_user['_id']}))
         
-        # Convert ObjectId to string
         for classroom in classrooms:
             classroom['_id'] = str(classroom['_id'])
             classroom['professor_id'] = str(classroom['professor_id'])
             classroom['students'] = [str(student_id) for student_id in classroom['students']]
         
         return jsonify(classrooms), 200
+    
+    @classroom_blueprint.route('/<classroom_id>', methods=['PUT'])
+    @token_required(db, SECRET_KEY)
+    @is_professor
+    def update_classroom(current_user, classroom_id):
+        try:
+            data = request.get_json()
+            
+            if not data:
+                return jsonify({"error": "No update data provided"}), 400
+            
+            if 'name' not in data:
+                return jsonify({"error": "Classroom name is required"}), 400
+            
+            classroom = classrooms_collection.find_one({
+                "_id": ObjectId(classroom_id),
+                "professor_id": current_user['_id']
+            })
+            
+            if not classroom:
+                return jsonify({"error": "Classroom not found or unauthorized"}), 404
+            
+            update_data = {
+                "name": data['name']
+            }
+            
+            if 'students' in data:
+                try:
+                    students = data['students']
+                    if not isinstance(students, list):
+                        raise ValueError
+                    update_data["students"] = [ObjectId(student_id) for student_id in students]
+                except (ValueError, TypeError):
+                    return jsonify({"error": "Students must be a valid JSON list of ObjectIds"}), 400
+            
+            result = classrooms_collection.update_one(
+                {"_id": ObjectId(classroom_id)},
+                {"$set": update_data}
+            )
+            
+            if result.modified_count > 0:
+                updated_classroom = classrooms_collection.find_one({"_id": ObjectId(classroom_id)})
+                updated_classroom['_id'] = str(updated_classroom['_id'])
+                updated_classroom['professor_id'] = str(updated_classroom['professor_id'])
+                updated_classroom['students'] = [str(student_id) for student_id in updated_classroom['students']]
+                
+                return jsonify(updated_classroom), 200
+            else:
+                return jsonify({"message": "No changes made"}), 200
+                
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    
+    @classroom_blueprint.route('/<classroom_id>', methods=['DELETE'])
+    @token_required(db, SECRET_KEY)
+    @is_professor
+    def delete_classroom(current_user, classroom_id):
+        try:
+            classroom = classrooms_collection.find_one({
+                "_id": ObjectId(classroom_id),
+                "professor_id": current_user['_id']
+            })
+            
+            if not classroom:
+                return jsonify({"error": "Classroom not found or unauthorized"}), 404
+            
+            result = classrooms_collection.delete_one({
+                "_id": ObjectId(classroom_id),
+                "professor_id": current_user['_id']
+            })
+            
+            if result.deleted_count == 1:
+                return jsonify({"message": "Classroom deleted successfully"}), 200
+            else:
+                return jsonify({"error": "Failed to delete classroom"}), 500
+                
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
     
     return classroom_blueprint
