@@ -133,6 +133,10 @@ def create_user_blueprint(db, config):
                     "email": email,
                     "role": role
                 }
+                # Add professor reference when creating student
+                professor_id = request.form.get('created_by_professor')
+                if professor_id:
+                    user_data["created_by_professor"] = professor_id
             else:
                 return jsonify({"error": "Invalid role specified."}), 400
 
@@ -254,9 +258,70 @@ def create_user_blueprint(db, config):
     @user_blueprint.route('/students', methods=['GET'])
     @token_required(db, SECRET_KEY)
     def get_students(current_user):
-        students = list(users_collection.find({"role": "student"}))
+        if current_user['role'] == 'professor':
+            # Only get students created by this professor
+            students = list(users_collection.find({
+                "role": "student",
+                "created_by_professor": str(current_user['_id'])
+            }))
+        else:
+            students = []
+        
         for student in students:
             student['_id'] = str(student['_id'])
         return jsonify(students), 200
-    
+
+    @user_blueprint.route('/student/register', methods=['POST'])
+    @token_required(db, config['SECRET_KEY'])
+    @is_professor
+    def register_student_route(current_user):
+        try:
+            # Check if user data are included in the request
+            if 'name' not in request.form or 'last_name' not in request.form or 'age' not in request.form or 'gender' not in request.form or 'email' not in request.form:
+                return jsonify({"error": "Missing user data in request"}), 400
+
+            users_collection = db['users']
+
+            # Get user data from the request
+            user_data = {
+                "name": request.form.get('name'),
+                "last_name": request.form.get('last_name'),
+                "age": request.form.get('age'),
+                "gender": request.form.get('gender'),
+                "email": request.form.get('email'),
+                "role": "student",
+                "created_by_professor": current_user['_id']
+            }
+
+            # Check if the user already exists
+            existing_user = users_collection.find_one({"email": user_data["email"]})
+            if existing_user:
+                return jsonify({"error": "User already exists"}), 400
+
+            # Handle image upload
+            files = []
+            for key in request.files:
+                if key.startswith('image'):
+                    files.append(request.files[key])
+
+            # Validate each image before processing
+            validated_images = []
+            for file in files:
+                is_valid, result = validate_image(file)
+                if not is_valid:
+                    return jsonify({"error": f"Invalid image: {result}"}), 400
+                validated_images.append(result)
+
+            # Register the user with validated images
+            user_id = register_user(validated_images, user_data)
+            
+            return jsonify({
+                "message": "Student registered successfully",
+                "user_id": str(user_id)
+            }), 201
+
+        except Exception as e:
+            print(f"Error in student registration: {str(e)}")
+            return jsonify({"error": "Internal server error"}), 500
+
     return user_blueprint
