@@ -12,7 +12,6 @@ def create_session_blueprint(db, config):
     @token_required(db, SECRET_KEY)
     @is_professor
     def create_session(current_user):
-        # sesion has a profesor_id, a name, and id of the classroom
         data = request.get_json()
         if not data or 'name' not in data or 'classroom_id' not in data:
             return jsonify({"error": "Session must have a name and a classroom_id"}), 400
@@ -37,7 +36,6 @@ def create_session_blueprint(db, config):
     def get_sessions(current_user):
         sessions = list(sessions_collection.find({"professor_id": current_user['_id']}))
         
-        # Convert ObjectId to string
         for session in sessions:
             session['_id'] = str(session['_id'])
             session['professor_id'] = str(session['professor_id'])

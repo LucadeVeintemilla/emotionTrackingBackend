@@ -50,4 +50,28 @@ def create_semester_blueprint(db):
         
         return jsonify({"message": "Semester created successfully", "semester": semester}), 201
 
+    @semester_blueprint.route('/<semester_id>/students', methods=['POST'])
+    def add_student_to_semester(semester_id):
+        try:
+            data = request.get_json()
+            student_ids = data.get('student_ids', [])
+            semester_id = ObjectId(semester_id)
+
+            result = semesters_collection.update_one(
+                {'_id': semester_id},
+                {'$addToSet': {'students': {'$each': student_ids}}}
+            )
+
+            if result.modified_count > 0:
+                users_collection.update_many(
+                    {'_id': {'$in': [ObjectId(id) for id in student_ids]}},
+                    {'$set': {'semester': str(semester_id)}}
+                )
+                return jsonify({"message": "Students added successfully"}), 200
+            
+            return jsonify({"error": "No changes made"}), 304
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     return semester_blueprint

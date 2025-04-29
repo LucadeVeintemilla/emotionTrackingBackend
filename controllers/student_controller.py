@@ -17,22 +17,17 @@ def create_student_blueprint(db, config):
 
     def validate_image(image_file):
         try:
-            # Check if the file exists and has valid extension
             if not image_file or not allowed_file(image_file.filename):
                 return False, "Invalid image file or extension"
             
-            # Try to open and verify the image
             img = Image.open(image_file)
             img.verify()
             
-            # Reset file pointer after verify
             image_file.seek(0)
             
-            # Try to actually load the image
             img = Image.open(image_file)
             img.load()
             
-            # Reset file pointer again
             image_file.seek(0)
             return True, img
         except Exception as e:
@@ -44,25 +39,20 @@ def create_student_blueprint(db, config):
         role_folder = os.path.join(base_folder, user_data['role'])
         gender_folder = os.path.join(role_folder, user_data['gender'])
 
-        # Create the folders if they don't exist
         if not os.path.exists(gender_folder):
             os.makedirs(gender_folder)
 
         for image in images:
             try:
-                # Generate a unique filename
                 filename = f"{uuid.uuid4().hex}.jpg"
                 image_path = os.path.join(gender_folder, filename)
                 
-                # Convert image to RGB if necessary
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
                 
-                # Save image to file system
                 image.save(image_path, format='JPEG', quality=95)
                 user_images.append(image_path)
             except Exception as e:
-                # Clean up any saved images if there's an error
                 for saved_image in user_images:
                     if os.path.exists(saved_image):
                         os.remove(saved_image)
@@ -78,11 +68,9 @@ def create_student_blueprint(db, config):
     @is_professor
     def register_student_route(current_user):
         try:
-            # Check if user data are included in the request
             if 'name' not in request.form or 'last_name' not in request.form or 'age' not in request.form or 'gender' not in request.form or 'email' not in request.form:
                 return jsonify({"error": "Missing user data in request"}), 400
 
-            # Get user data from the request
             user_data = {
                 "name": request.form.get('name'),
                 "last_name": request.form.get('last_name'),
@@ -93,18 +81,15 @@ def create_student_blueprint(db, config):
                 "created_by_professor": request.form.get('created_by_professor')
             }
 
-            # Check if the user already exists
             existing_user = users_collection.find_one({"email": user_data["email"]})
             if existing_user:
                 return jsonify({"error": "User already exists"}), 400
 
-            # Handle image upload
             files = []
             for key in request.files:
                 if key.startswith('image'):
                     files.append(request.files[key])
 
-            # Validate each image before processing
             validated_images = []
             for file in files:
                 is_valid, result = validate_image(file)
@@ -112,7 +97,6 @@ def create_student_blueprint(db, config):
                     return jsonify({"error": f"Invalid image: {result}"}), 400
                 validated_images.append(result)
 
-            # Register the user with validated images
             user_id = register_user(validated_images, user_data)
             
             return jsonify({
@@ -123,5 +107,83 @@ def create_student_blueprint(db, config):
         except Exception as e:
             print(f"Error in student registration: {str(e)}")
             return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+
+    @student_blueprint.route('/<student_id>', methods=['DELETE'])
+    @token_required(db, config['SECRET_KEY'])
+    @is_professor
+    def delete_student(current_user, student_id):
+        try:
+            student = users_collection.find_one({
+                "_id": ObjectId(student_id),
+                "role": "student",
+                "created_by_professor": str(current_user['_id'])
+            })
+            
+            if not student:
+                return jsonify({"error": "Student not found or unauthorized"}), 404
+            
+            if 'images' in student and student['images']:
+                for image_path in student['images']:
+                    if os.path.exists(image_path):
+                        try:
+                            os.remove(image_path)
+                        except Exception as e:
+                            print(f"Error deleting image {image_path}: {str(e)}")
+            
+            result = users_collection.delete_one({"_id": ObjectId(student_id)})
+            
+            if result.deleted_count == 1:
+                return jsonify({"message": "Student deleted successfully"}), 200
+            else:
+                return jsonify({"error": "Failed to delete student"}), 500
+                
+        except Exception as e:
+            print(f"Error deleting student: {str(e)}")
+            return jsonify({"error": str(e)}), 500
+
+    @student_blueprint.route('/<student_id>', methods=['PUT'])
+    @token_required(db, config['SECRET_KEY'])
+    @is_professor
+    def update_student(current_user, student_id):
+        try:
+            student = users_collection.find_one({
+                '_id': ObjectId(student_id),
+                'role': 'student',
+                'created_by_professor': str(current_user['_id'])
+            })
+            
+            if not student:
+                return jsonify({'error': 'Student not found or unauthorized'}), 404
+
+            data = request.get_json()
+            
+            if not all(key in data for key in ['name', 'last_name', 'email', 'age', 'gender']):
+                return jsonify({'error': 'Missing required fields'}), 400
+
+            update_data = {
+                'name': data['name'],
+                'last_name': data['last_name'],
+                'email': data['email'],
+                'age': int(data['age']),
+                'gender': data['gender']
+            }
+
+            result = users_collection.update_one(
+                {'_id': ObjectId(student_id)},
+                {'$set': update_data}
+            )
+
+            if result.modified_count > 0:
+                updated_student = users_collection.find_one({'_id': ObjectId(student_id)})
+                updated_student['_id'] = str(updated_student['_id'])
+                return jsonify(updated_student), 200
+            else:
+                return jsonify({'error': 'No changes made'}), 304
+
+        except ValueError as e:
+            return jsonify({'error': 'Invalid data format'}), 400
+        except Exception as e:
+            print(f"Error updating student: {str(e)}")
+            return jsonify({'error': 'Internal server error'}), 500
 
     return student_blueprint

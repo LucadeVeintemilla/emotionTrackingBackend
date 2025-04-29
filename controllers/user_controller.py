@@ -13,14 +13,13 @@ from user_utils import identify_users, identify_user, save_emotions_to_user, tok
 
 def create_user_blueprint(db, config):
     users_collection = db['users']
-    students_collection = db['students']  # Nueva colección para estudiantes
+    students_collection = db['students']  
     user_blueprint = Blueprint('user', __name__)
     SECRET_KEY = config['SECRET_KEY']
     UPLOAD_FOLDER = 'user_images'
 
     @user_blueprint.route('/user_images/<path:filename>')
     def user_images(filename):
-        # Convert backslashes to forward slashes
         filename = filename.replace('\\', '/')
         return send_from_directory(UPLOAD_FOLDER, filename)
 
@@ -29,22 +28,17 @@ def create_user_blueprint(db, config):
 
     def validate_image(image_file):
         try:
-            # Check if the file exists and has valid extension
             if not image_file or not allowed_file(image_file.filename):
                 return False, "Invalid image file or extension"
             
-            # Try to open and verify the image
             img = Image.open(image_file)
             img.verify()
             
-            # Reset file pointer after verify
             image_file.seek(0)
             
-            # Try to actually load the image
             img = Image.open(image_file)
             img.load()
             
-            # Reset file pointer again
             image_file.seek(0)
             return True, img
         except Exception as e:
@@ -56,25 +50,20 @@ def create_user_blueprint(db, config):
         role_folder = os.path.join(base_folder, user_data['role'])
         gender_folder = os.path.join(role_folder, user_data['gender'])
 
-        # Create the folders if they don't exist
         if not os.path.exists(gender_folder):
             os.makedirs(gender_folder)
 
         for image in images:
             try:
-                # Generate a unique filename
                 filename = f"{uuid.uuid4().hex}.jpg"
                 image_path = os.path.join(gender_folder, filename)
                 
-                # Convert image to RGB if necessary
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
                 
-                # Save image to file system
                 image.save(image_path, format='JPEG', quality=95)
                 user_images.append(image_path)
             except Exception as e:
-                # Clean up any saved images if there's an error
                 for saved_image in user_images:
                     if os.path.exists(saved_image):
                         os.remove(saved_image)
@@ -88,11 +77,9 @@ def create_user_blueprint(db, config):
     @user_blueprint.route('/register', methods=['POST'])
     def register_user_route():
         try:
-            # Check if user data are included in the request
             if 'name' not in request.form or 'last_name' not in request.form or 'age' not in request.form or 'gender' not in request.form or 'email' not in request.form or 'role' not in request.form:
                 return jsonify({"error": "Missing user data in request"}), 400
 
-            # Get user data from the request
             name = request.form.get('name')
             last_name = request.form.get('last_name')
             age = request.form.get('age')
@@ -133,19 +120,16 @@ def create_user_blueprint(db, config):
                     "email": email,
                     "role": role
                 }
-                # Add professor reference when creating student
                 professor_id = request.form.get('created_by_professor')
                 if professor_id:
                     user_data["created_by_professor"] = professor_id
             else:
                 return jsonify({"error": "Invalid role specified."}), 400
 
-            # Check if the user already exists
             existing_user = users_collection.find_one({"email": email})
             if existing_user:
                 return jsonify({"error": "User already exists"}), 400
 
-            # Validate each image before processing
             validated_images = []
             for file in files:
                 is_valid, result = validate_image(file)
@@ -153,7 +137,6 @@ def create_user_blueprint(db, config):
                     return jsonify({"error": f"Invalid image: {result}"}), 400
                 validated_images.append(result)
 
-            # Register the user with validated images
             user_id = register_user(validated_images, user_data)
             token = jwt.encode({
                     'user_id': str(user_id),
@@ -188,18 +171,14 @@ def create_user_blueprint(db, config):
     @user_blueprint.route('/identify_users_by_image', methods=['POST'])
     def identify_users_by_image_route():
         try:
-            # Check if the image is included in the request
             if 'image' not in request.files:
                 return jsonify({"error": "Missing image in request"}), 400
 
-            # Get the image file from the request
             file = request.files['image']
             image = Image.open(file)
 
-            # Convert the image to a numpy array
             image_array = np.array(image)
 
-            # Attempt to identify the users using the provided image
             identified_users = identify_users(image_array, users_collection)
             for user in identified_users:
                 print(user['name'])
@@ -213,18 +192,14 @@ def create_user_blueprint(db, config):
     @user_blueprint.route('/identify_user_by_image', methods=['POST'])
     def identify_user_by_image_route():
         try:
-            # Check if the image is included in the request
             if 'image' not in request.files:
                 return jsonify({"error": "Missing image in request"}), 400
 
-            # Get the image file from the request
             file = request.files['image']
             image = Image.open(file)
 
-            # Convert the image to a numpy array
             image_array = np.array(image)
 
-            # Attempt to identify the users using the provided image
             identified_user = identify_user(image_array, users_collection)
 
             if identified_user:
@@ -276,13 +251,11 @@ def create_user_blueprint(db, config):
     @is_professor
     def register_student_route(current_user):
         try:
-            # Check if user data are included in the request
             if 'name' not in request.form or 'last_name' not in request.form or 'age' not in request.form or 'gender' not in request.form or 'email' not in request.form:
                 return jsonify({"error": "Missing user data in request"}), 400
 
             users_collection = db['users']
 
-            # Get user data from the request
             user_data = {
                 "name": request.form.get('name'),
                 "last_name": request.form.get('last_name'),
@@ -293,18 +266,15 @@ def create_user_blueprint(db, config):
                 "created_by_professor": current_user['_id']
             }
 
-            # Check if the user already exists
             existing_user = users_collection.find_one({"email": user_data["email"]})
             if existing_user:
                 return jsonify({"error": "User already exists"}), 400
 
-            # Handle image upload
             files = []
             for key in request.files:
                 if key.startswith('image'):
                     files.append(request.files[key])
 
-            # Validate each image before processing
             validated_images = []
             for file in files:
                 is_valid, result = validate_image(file)
@@ -312,7 +282,6 @@ def create_user_blueprint(db, config):
                     return jsonify({"error": f"Invalid image: {result}"}), 400
                 validated_images.append(result)
 
-            # Register the user with validated images
             user_id = register_user(validated_images, user_data)
             
             return jsonify({
@@ -323,5 +292,31 @@ def create_user_blueprint(db, config):
         except Exception as e:
             print(f"Error in student registration: {str(e)}")
             return jsonify({"error": "Internal server error"}), 500
+
+    @user_blueprint.route('/student/<student_id>', methods=['DELETE'])
+    @token_required(db, config['SECRET_KEY'])
+    @is_professor
+    def delete_student(current_user, student_id):
+        try:
+            users_collection = db['users']
+            student = users_collection.find_one({
+                '_id': ObjectId(student_id),
+                'role': 'student',
+                'created_by_professor': current_user['_id']
+            })
+            
+            if not student:
+                return jsonify({'error': 'Student not found or unauthorized'}), 404
+            
+            result = users_collection.delete_one({'_id': ObjectId(student_id)})
+            
+            if result.deleted_count > 0:
+                return jsonify({'message': 'Student deleted successfully'}), 200
+            else:
+                return jsonify({'error': 'Failed to delete student'}), 400
+
+        except Exception as e:
+            print(f"Error deleting student: {str(e)}")
+            return jsonify({'error': 'Internal server error'}), 500
 
     return user_blueprint
