@@ -126,4 +126,73 @@ def create_classroom_blueprint(db, config):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
     
+    @classroom_blueprint.route('/<classroom_id>/students', methods=['POST'])
+    @token_required(db, SECRET_KEY)
+    @is_professor
+    def add_student_to_classroom(current_user, classroom_id):
+        try:
+            data = request.get_json()
+            student_ids = data.get('student_ids', [])
+            classroom_id_obj = ObjectId(classroom_id)
+
+            classroom = classrooms_collection.find_one({
+                "_id": classroom_id_obj,
+                "professor_id": current_user['_id']
+            })
+            
+            if not classroom:
+                return jsonify({"error": "Classroom not found or unauthorized"}), 404
+
+            student_ids_obj = []
+            for student_id in student_ids:
+                student_ids_obj.append(ObjectId(student_id))
+
+            result = classrooms_collection.update_one(
+                {'_id': classroom_id_obj},
+                {'$addToSet': {'students': {'$each': student_ids_obj}}}
+            )
+
+            if result.modified_count > 0:
+                return jsonify({"message": "Students added successfully"}), 200
+            
+            return jsonify({"message": "No changes made"}), 200
+
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @classroom_blueprint.route('/<classroom_id>/students/remove', methods=['POST'])
+    @token_required(db, SECRET_KEY)
+    @is_professor
+    def remove_students_from_classroom(current_user, classroom_id):
+        try:
+            data = request.get_json()
+            student_ids = data.get('student_ids', [])
+            
+            if not student_ids:
+                return jsonify({"error": "No student IDs provided"}), 400
+                
+            classroom_id_obj = ObjectId(classroom_id)
+            
+            classroom = classrooms_collection.find_one({
+                "_id": classroom_id_obj,
+                "professor_id": current_user['_id']
+            })
+            
+            if not classroom:
+                return jsonify({"error": "Classroom not found or unauthorized"}), 404
+
+            student_ids_obj = []
+            for student_id in student_ids:
+                student_ids_obj.append(ObjectId(student_id))
+                
+            result = classrooms_collection.update_one(
+                {'_id': classroom_id_obj},
+                {'$pull': {'students': {'$in': student_ids_obj}}}
+            )
+            
+            return jsonify({"message": "Students removed from classroom successfully"}), 200
+                
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     return classroom_blueprint
