@@ -81,9 +81,12 @@ def create_student_blueprint(db, config):
                 "created_by_professor": request.form.get('created_by_professor')
             }
 
-            existing_user = users_collection.find_one({"email": user_data["email"]})
+            existing_user = users_collection.find_one({
+                "email": user_data["email"],
+                "created_by_professor": user_data["created_by_professor"]
+            })
             if existing_user:
-                return jsonify({"error": "User already exists"}), 400
+                return jsonify({"error": "Ya has registrado un estudiante con este correo"}), 400
 
             files = []
             for key in request.files:
